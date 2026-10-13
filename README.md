@@ -1,42 +1,35 @@
-# Xmip repository template — Rust
+# xmip-core-provision-internal-ca
 
-This repository is the starter snapshot for a Rust Xmip module repository. It is
-not an Xmip runtime capability.
+The cluster's own certificate authority. A technology of
+[xmip-core-provision](https://github.com/IlleNilsson/xmip-core-provision).
 
-For a .NET 11 surface — the CLI, the PowerShell module, the MAUI desktop GUI or
-the Blazor web GUI — use
-[xmip-template-dotnet](https://github.com/IlleNilsson/xmip-template-dotnet)
-instead. ADR-0014: every user-interfacing module is .NET 11, and
-`xmip-core-abi` is the exception.
+## What it does
 
-A repository generated from this template has independent history. Later
-template changes do not automatically rewrite generated repositories.
+- **Issues node certificates** for server and client authentication both,
+  which mutual TLS between nodes needs (ADR-0063 clause 1) and a public
+  authority no longer gives: Let's Encrypt has issued server authentication
+  alone since 2026-07-08 (ADR-0033, amendment 2026-10-13).
+- **Keeps its root** — a P-256 key and its self-signed certificate — in the
+  purpose's place; that certificate is the anchor every node trusts.
+- **Serves ACME** (`Serving`), so every other node obtains its certificate by
+  the one protocol it would use against any authority: it names the
+  authority's directory and anchor as `acme` settings. The node holding the
+  authority issues its own directly (`InternalCa`).
+- **Validates** http-01 on the port it is configured with
+  (`challenge_port`, 80 unless said) and dns-01 through a `DnsLookup` it is
+  given; Xmip ships none yet, so without one it offers http-01 alone.
 
-## Before implementation
-
-Follow [TEMPLATE_SETUP.md](TEMPLATE_SETUP.md), and item 3 first. The new
-repository must be classified and declared in the authoritative Xmip
-architecture manifest before its responsibility or dependencies are treated as
-accepted architecture.
-
-## Toolchain
-
-`rust-toolchain.toml` pins the toolchain for the whole estate. rustup reads it
-automatically and installs what is missing. Do not change it here — raising it
-is one deliberate change across every repository.
-
-## Shared governance
-
-Repository-specific licensing remains explicit in [LICENSE](LICENSE).
-Contribution, security, support, issue and pull-request defaults are inherited
-from [IlleNilsson/.github](https://github.com/IlleNilsson/.github) when they are
-not overridden locally.
+It rides on `xmip-core-provision-acme` as its carrier (ADR-0044 clause 1):
+the JWS and the objects it reads are the ones the client writes. Nothing here
+reaches beyond the cluster (ADR-0045).
 
 ## Verification
 
-The included workflow is manual-only and calls the versioned shared workflow at
-`IlleNilsson/.github@v1`. It does not run on pushes, pull requests or a
-schedule.
-
-The ordered stages are formatting, semantic analysis, linting, compilation and
-linking, and test execution. Packaging and publishing are not configured.
+`tests/acme`, offline and in process: a node obtains its certificate by ACME
+from the authority, by http-01 and by dns-01, and presents it on mutual TLS
+to the authority's own node; a certificate is renewed at two thirds of its
+life and not before; a challenge nobody answers is refused with the
+authority's reason; an incomplete configuration is refused naming what is
+missing. That is open problem 27's `identity-local`, without step-ca. The
+workflow is manual-only and calls the versioned shared workflow at
+`IlleNilsson/.github@v1`.
