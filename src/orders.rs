@@ -157,6 +157,9 @@ impl Books {
                 .map_err(|failure| Problem::new(400, "badCSR", failure.message))?,
         )
         .map_err(|failure| Problem::new(400, "badCSR", failure.message))?;
+        Purpose::Node
+            .admit(&requested)
+            .map_err(|failure| Problem::new(400, "badCSR", failure.message))?;
         let mut state = self.state();
         let order = state
             .orders

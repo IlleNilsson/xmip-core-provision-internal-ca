@@ -1,19 +1,18 @@
 //! The cluster's authority: a root key and its self-signed certificate,
-//! kept in a directory, issuing node certificates under it.
+//! kept in a directory, issuing node certificates under it and signing a
+//! person's request. What it signs and how is the capability's
+//! (`provision::Issuer`, written once); making the root and keeping it is
+//! this technology's.
 
 use std::path::Path;
 
-use provision::{Draft, KeyPair, ProvisionError, Purpose, Result, Usage, pem};
-
-/// The files the authority is kept in.
-const KEY: &str = "authority.key";
-const CERTIFICATE: &str = "authority.pem";
+use provision::issuer::{CERTIFICATE, KEY};
+use provision::{Draft, Issuer, KeyPair, ProvisionError, Purpose, Result, Usage, pem};
 
 /// The cluster's own certificate authority.
 pub struct Authority {
     name: String,
-    key: KeyPair,
-    certificate: String,
+    issuer: Issuer,
 }
 
 impl core::fmt::Debug for Authority {
@@ -44,8 +43,7 @@ impl Authority {
         .sign(name, &key)?;
         Ok(Self {
             name: name.to_string(),
-            key,
-            certificate: pem::encode("CERTIFICATE", &der),
+            issuer: Issuer::new(pem::encode("CERTIFICATE", &der), key)?,
         })
     }
 
@@ -57,38 +55,30 @@ impl Authority {
     /// Where the files cannot be read or written, or do not hold an
     /// authority.
     pub fn kept(place: &Path, name: &str, now: i64, lifetime: i64) -> Result<Self> {
+        if place.join(KEY).exists() {
+            return Ok(Self {
+                name: name.to_string(),
+                issuer: Issuer::kept(place)?,
+            });
+        }
         let failed = |path: &Path, failure: std::io::Error| {
             ProvisionError::new(format!("{}: {failure}", path.display()))
         };
-        let key_path = place.join(KEY);
+        let created = Self::create(name, now, lifetime)?;
+        std::fs::create_dir_all(place).map_err(|failure| failed(place, failure))?;
         let certificate_path = place.join(CERTIFICATE);
-        match std::fs::read_to_string(&key_path) {
-            Ok(key) => {
-                let certificate = std::fs::read_to_string(&certificate_path)
-                    .map_err(|failure| failed(&certificate_path, failure))?;
-                Ok(Self {
-                    name: name.to_string(),
-                    key: KeyPair::from_pem(&key)?,
-                    certificate,
-                })
-            }
-            Err(failure) if failure.kind() == std::io::ErrorKind::NotFound => {
-                let created = Self::create(name, now, lifetime)?;
-                std::fs::create_dir_all(place).map_err(|failure| failed(place, failure))?;
-                std::fs::write(&certificate_path, &created.certificate)
-                    .map_err(|failure| failed(&certificate_path, failure))?;
-                std::fs::write(&key_path, created.key.pem().as_bytes())
-                    .map_err(|failure| failed(&key_path, failure))?;
-                Ok(created)
-            }
-            Err(failure) => Err(failed(&key_path, failure)),
-        }
+        std::fs::write(&certificate_path, created.anchor())
+            .map_err(|failure| failed(&certificate_path, failure))?;
+        let key_path = place.join(KEY);
+        std::fs::write(&key_path, created.issuer.key().pem().as_bytes())
+            .map_err(|failure| failed(&key_path, failure))?;
+        Ok(created)
     }
 
     /// Its certificate, PEM: the anchor every node of the cluster trusts.
     #[must_use]
     pub fn anchor(&self) -> &str {
-        &self.certificate
+        self.issuer.certificate()
     }
 
     /// A certificate for `public_key_info` and `names`, for `purpose`, from
@@ -108,19 +98,31 @@ impl Authority {
         let subject = names
             .first()
             .ok_or_else(|| ProvisionError::new("a certificate names at least one DNS name"))?;
-        let der = Draft {
+        self.issuer.issue(
+            public_key_info,
             subject,
             names,
-            public_key_info,
+            purpose,
             not_before,
             not_after,
-            usage: Usage::Leaf(purpose),
-        }
-        .sign(&self.name, &self.key)?;
-        Ok(format!(
-            "{}{}",
-            pem::encode("CERTIFICATE", &der),
-            self.certificate
-        ))
+        )
+    }
+
+    /// A certificate for the request `der` — a person's, for
+    /// `Purpose::Operator` — once its signature verifies and `purpose`
+    /// admits it, from `not_before` to `not_after`, as a chain.
+    ///
+    /// # Errors
+    ///
+    /// Where the request does not verify or asks for more than `purpose`
+    /// allows, in words.
+    pub fn sign(
+        &self,
+        der: &[u8],
+        purpose: Purpose,
+        not_before: i64,
+        not_after: i64,
+    ) -> Result<String> {
+        self.issuer.sign(der, purpose, not_before, not_after)
     }
 }

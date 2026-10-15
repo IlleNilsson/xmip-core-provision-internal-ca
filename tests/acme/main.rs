@@ -232,6 +232,52 @@ fn an_acme_source_without_its_directory_is_refused_naming_it() {
     assert!(refused.message.contains("DNS writer"), "{refused}");
 }
 
+#[test]
+fn a_persons_request_signed_by_the_authority_is_presented_on_mutual_tls_to_its_node() {
+    let place = Place::new();
+    let names = vec![HOST.to_string()];
+    let read = provision::read(
+        "node",
+        &[
+            text("source", internal_ca::TECHNOLOGY),
+            text("names", HOST),
+            text("lifetime", "24h"),
+            text("authority_lifetime", "720h"),
+        ],
+        &[internal_ca::SETTINGS],
+    )
+    .expect("the authority's settings");
+    let ca = InternalCa::configured(&read.settings);
+    let order = provision::Order {
+        purpose: Purpose::Node,
+        names: &names,
+        keep: &place.0,
+    };
+    let node = ca.obtain(&order).expect("the node's own");
+
+    let asked = provision::operator::request("alice@example.org").expect("a request");
+    let der = provision::pem::decode(provision::operator::REQUEST_LABEL, &asked.request)
+        .expect("pem")
+        .remove(0);
+    let authority = ca.authority(&place.0, &names).expect("kept");
+    let now = provision::now();
+    let chain = authority
+        .sign(&der, Purpose::Operator, now, now + 3600)
+        .expect("signed");
+    let person = Provisioned::new(
+        chain,
+        asked.key.clone(),
+        Some(authority.anchor().to_string()),
+    )
+    .expect("held");
+    mutual(&node, &person);
+
+    let refused = authority
+        .sign(&der, Purpose::Node, now, now + 3600)
+        .expect_err("a person is no node");
+    assert!(refused.message.contains("no DNS name"), "{refused}");
+}
+
 /// Both certificates presented and verified in one mutual TLS handshake.
 fn mutual(server: &Provisioned, client: &Provisioned) {
     let identity = |held: &Provisioned| {
