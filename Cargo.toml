@@ -33,6 +33,11 @@ zeroize = "1"
 # key home (secret::private_file).
 secret = { package = "xmip-core-secret", git = "https://github.com/IlleNilsson/xmip-core-secret", branch = "main" }
 
+[dev-dependencies]
+# A loopback address no one holds, for what a test wants nothing listening
+# at or binds later (`net::fixture::unheld`).
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", features = ["test-support"] }
+
 [lints.rust]
 # forbid, not deny: a module has no business writing unsafe. The one exception
 # in the estate is xmip-core-abi, which holds the extern "C" vtable over

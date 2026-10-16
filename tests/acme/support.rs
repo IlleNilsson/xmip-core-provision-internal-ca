@@ -44,10 +44,10 @@ pub fn loopback(port: u16) -> String {
     first.to_string()
 }
 
-/// A port on [`loopback`] nothing listens on now.
+/// A port on [`loopback`] no one holds (`net::fixture::unheld_on`).
 pub fn free_port() -> u16 {
-    let held = std::net::TcpListener::bind(loopback(0)).expect("a port");
-    held.local_addr().expect("address").port()
+    let first: std::net::SocketAddr = loopback(0).parse().expect("an address");
+    net::fixture::unheld_on(first.ip()).port()
 }
 
 /// `[provision.<purpose>]` as the given keys and values, read against
