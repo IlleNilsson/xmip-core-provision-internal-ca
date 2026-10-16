@@ -8,6 +8,7 @@ use std::path::Path;
 
 use provision::issuer::{CERTIFICATE, KEY};
 use provision::{Draft, Issuer, KeyPair, ProvisionError, Purpose, Result, Usage, pem};
+use secret::private_file;
 
 /// The cluster's own certificate authority.
 pub struct Authority {
@@ -50,11 +51,22 @@ impl Authority {
     /// The authority kept in `place`, or a new one called `name` created and
     /// kept there where it keeps none.
     ///
+    /// Both files are private files (`secret::private_file`) in a private
+    /// directory. The certificate is written first, in place of any a crash
+    /// left, and the key last and never over one: the key is what says an
+    /// authority is kept, so a crash between the two leaves none kept and the
+    /// next start makes a new pair, never a certificate beside another's key.
+    /// What a crash left between writing a file and naming it is swept first
+    /// (`private_file::sweep`).
+    ///
     /// # Errors
     ///
     /// Where the files cannot be read or written, or do not hold an
     /// authority.
     pub fn kept(place: &Path, name: &str, now: i64, lifetime: i64) -> Result<Self> {
+        private_file::sweep(place).map_err(|failure| {
+            ProvisionError::new(format!("sweeping {}: {failure}", place.display()))
+        })?;
         if place.join(KEY).exists() {
             return Ok(Self {
                 name: name.to_string(),
@@ -65,12 +77,12 @@ impl Authority {
             ProvisionError::new(format!("{}: {failure}", path.display()))
         };
         let created = Self::create(name, now, lifetime)?;
-        std::fs::create_dir_all(place).map_err(|failure| failed(place, failure))?;
+        private_file::directory(place).map_err(|failure| failed(place, failure))?;
         let certificate_path = place.join(CERTIFICATE);
-        std::fs::write(&certificate_path, created.anchor())
+        private_file::replace(&certificate_path, created.anchor().as_bytes())
             .map_err(|failure| failed(&certificate_path, failure))?;
         let key_path = place.join(KEY);
-        std::fs::write(&key_path, created.issuer.key().pem().as_bytes())
+        private_file::create(&key_path, created.issuer.key().pem().as_bytes())
             .map_err(|failure| failed(&key_path, failure))?;
         Ok(created)
     }
@@ -124,5 +136,65 @@ impl Authority {
         not_after: i64,
     ) -> Result<String> {
         self.issuer.sign(der, purpose, not_before, not_after)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn place(test: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "xmip-internal-ca-authority-{test}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        path.join("authority")
+    }
+
+    /// Whether the certificate kept in `place` is for the key kept beside it.
+    fn matching(place: &Path) -> bool {
+        let key = std::fs::read_to_string(place.join(KEY)).expect("key");
+        let public = KeyPair::from_pem(&key).expect("a key").public_key_info();
+        let text = std::fs::read_to_string(place.join(CERTIFICATE)).expect("certificate");
+        let der = pem::decode("CERTIFICATE", &text).expect("pem").remove(0);
+        der.windows(public.len())
+            .any(|window| window == public.as_slice())
+    }
+
+    #[test]
+    fn an_authority_is_kept_privately_and_read_back_as_it_was() {
+        let place = place("kept");
+        let made = Authority::kept(&place, "cluster", 1_800_000_000, 3600).expect("made");
+        let again = Authority::kept(&place, "cluster", 1_800_000_000, 3600).expect("read");
+        assert_eq!(made.anchor(), again.anchor());
+        assert!(matching(&place));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let bits = |path: &Path| std::fs::metadata(path).expect("metadata").mode() & 0o777;
+            assert_eq!(bits(&place.join(KEY)), 0o600);
+            assert_eq!(bits(&place), 0o700);
+        }
+        #[cfg(windows)]
+        {
+            let described = |path: &Path| private_file::described(path).expect("described");
+            let owner = |directory| private_file::owner_only(directory).expect("owner only");
+            assert_eq!(described(&place.join(KEY)), owner(false));
+            assert_eq!(described(&place), owner(true));
+        }
+        let _ = std::fs::remove_dir_all(place.parent().expect("base"));
+    }
+
+    #[test]
+    fn a_crash_between_the_certificate_and_the_key_leaves_a_matching_pair_next_time() {
+        let place = place("crash");
+        let other = Authority::create("before the crash", 1_800_000_000, 3600).expect("made");
+        private_file::replace(&place.join(CERTIFICATE), other.anchor().as_bytes())
+            .expect("the certificate a crash left");
+        let made = Authority::kept(&place, "cluster", 1_800_000_000, 3600).expect("made");
+        assert_ne!(made.anchor(), other.anchor());
+        assert!(matching(&place), "the certificate is for the key beside it");
+        let _ = std::fs::remove_dir_all(place.parent().expect("base"));
     }
 }
