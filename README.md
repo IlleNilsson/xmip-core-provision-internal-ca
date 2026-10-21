@@ -11,10 +11,13 @@ The cluster's own certificate authority. A technology of
   alone since 2026-07-08 (ADR-0033, amendment 2026-10-13).
 - **Keeps its root** — a P-256 key and its self-signed certificate,
   `authority.key` and `authority.pem` — in the purpose's place; that
-  certificate is the anchor every node trusts. Both are private files
-  (`xmip-core-secret`'s `private_file`) in a private folder; the certificate
-  is written first and the key last, never over one, so a crash between
-  leaves no authority kept and the next start makes a matching pair.
+  certificate is the anchor every node trusts. How it is made and kept is
+  the capability's, `Issuer::kept_or_made`, since 2026-10-21 when a web
+  host's authority on this machine came to be kept the same way: both are
+  private files (`xmip-core-secret`'s `private_file`) in a private folder;
+  the certificate is written first and the key last, never over one, so a
+  crash between leaves no authority kept and the next start makes a
+  matching pair.
 - **Signs a person's request** (`Authority::sign`, ADR-0034, amendment
   2026-10-15): an operator's certificate, client authentication alone, its
   subject the person, once the request's signature verifies and the
