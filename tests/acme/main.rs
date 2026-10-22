@@ -2,7 +2,9 @@
 //! process and offline, and presents it on mutual TLS: open problem 27's
 //! `identity-local`, without step-ca.
 
+mod premises;
 mod support;
+mod third_party;
 
 use std::io::{Read, Write};
 use std::path::Path;

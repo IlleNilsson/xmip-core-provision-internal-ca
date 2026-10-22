@@ -6,9 +6,13 @@ use net::http::Response;
 use provision::{Purpose, csr};
 use serde_json::{Value, json};
 
-use crate::books::{Asked, AuthorizationBook, Books, OrderBook, State, json_response};
+use crate::books::{Asked, AuthorizationBook, Books, OrderBook, State, json_response, rfc3339};
 use crate::problem::Problem;
 use crate::validation;
+
+/// How long an order and its authorizations wait to be proven and
+/// finalized: a day.
+const PENDING: i64 = 86_400;
 
 impl Books {
     /// `newOrder`: an authorization a name, each with its challenges.
@@ -37,6 +41,8 @@ impl Books {
             }
             names.push(value.to_ascii_lowercase());
         }
+        self.replaces(from)?;
+        let expires = provision::now() + PENDING;
         let mut state = self.state();
         let mut authorizations = Vec::new();
         for name in &names {
@@ -46,6 +52,7 @@ impl Books {
                 token: codec::base64::encode_url_unpadded(&codec::random::array::<32>()),
                 status: "pending",
                 error: None,
+                expires,
             });
             authorizations.push(state.authorizations.len() - 1);
         }
@@ -55,6 +62,7 @@ impl Books {
             authorizations,
             status: "pending",
             chain: None,
+            expires,
         });
         let index = state.orders.len() - 1;
         let body = self.order_json(&state.orders[index], index);
@@ -196,9 +204,12 @@ impl Books {
             now,
             now + self.policy.lifetime,
         )?;
+        let serial = provision::Parsed::first(&chain)?.serial_hex();
         order.chain = Some(chain);
         order.status = "valid";
         let body = self.order_json(&state.orders[index], index);
+        drop(state);
+        self.note_ordered(&serial, from.account)?;
         Ok(json_response(200, &body))
     }
 
@@ -232,6 +243,7 @@ impl Books {
             "identifiers": identifiers,
             "authorizations": authorizations,
             "finalize": self.url(&format!("/finalize/{index}")),
+            "expires": rfc3339(order.expires),
         });
         if order.chain.is_some() {
             body["certificate"] = Value::String(self.url(&format!("/certificate/{index}")));
@@ -260,6 +272,7 @@ impl Books {
         json!({
             "identifier": { "type": "dns", "value": found.name },
             "status": found.status,
+            "expires": rfc3339(found.expires),
             "challenges": challenges,
         })
     }

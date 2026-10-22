@@ -11,8 +11,8 @@ use xcore::settings::{Applies, Fixed, Kind, Presence, Read, Setting, Settings};
 use zeroize::Zeroizing;
 
 use crate::books::Policy;
-use crate::server::Serving;
-use crate::{Authority, DnsLookup};
+use crate::server::{Publishing, Serving};
+use crate::{Authority, DnsLookup, Resolver};
 
 /// The technology's module name.
 pub const TECHNOLOGY: &str = "xmip-core-provision-internal-ca";
@@ -58,15 +58,51 @@ pub const SETTINGS: &Settings = &Settings {
             meaning: "The port the authority asks a node's http-01 answer on.",
             applies: Applies::Both,
         },
+        Setting {
+            name: "authority",
+            kind: Kind::Address,
+            presence: Presence::Default(Fixed::Text("authority")),
+            meaning: "The folder the authority is kept in — authority.key, authority.pem and \
+                      its register — relative to the purpose's place.",
+            applies: Applies::Both,
+        },
+        Setting {
+            name: "publish",
+            kind: Kind::Address,
+            presence: Presence::Optional,
+            meaning: "Where the authority publishes its revocation list and its certificate \
+                      over plain HTTP, host and port; absent, they are fetched from its ACME \
+                      service alone.",
+            applies: Applies::Both,
+        },
+        Setting {
+            name: "published_at",
+            kind: Kind::Text,
+            presence: Presence::Optional,
+            meaning: "The address the premises reach that publication at, http://host:port, \
+                      which every certificate it signs names.",
+            applies: Applies::Both,
+        },
+        Setting {
+            name: "dns_server",
+            kind: Kind::Address,
+            presence: Presence::Optional,
+            meaning: "The DNS server on the premises dns-01 is checked against, host and \
+                      port; absent, http-01 alone is offered.",
+            applies: Applies::Both,
+        },
     ],
 };
 
 /// The cluster's authority, configured.
-#[derive(Clone, Debug)]
 pub struct InternalCa {
     lifetime: i64,
     authority_lifetime: i64,
+    authority: String,
     serve: Option<String>,
+    publish: Option<String>,
+    published_at: Option<String>,
+    dns_server: Option<String>,
     challenge_port: u16,
 }
 
@@ -76,10 +112,15 @@ impl InternalCa {
     pub fn configured(settings: &Read) -> Self {
         let seconds =
             |name: &str| i64::try_from(settings.duration(name).as_secs()).unwrap_or(i64::MAX / 2);
+        let text = |name: &str| settings.optional_text(name).map(str::to_string);
         Self {
             lifetime: seconds("lifetime"),
             authority_lifetime: seconds("authority_lifetime"),
-            serve: settings.optional_text("serve").map(str::to_string),
+            authority: text("authority").unwrap_or_else(|| PLACE.to_string()),
+            serve: text("serve"),
+            publish: text("publish"),
+            published_at: text("published_at"),
+            dns_server: text("dns_server"),
             challenge_port: u16::try_from(settings.integer("challenge_port")).unwrap_or(80),
         }
     }
@@ -90,24 +131,45 @@ impl InternalCa {
         self.serve.as_deref()
     }
 
+    /// Where it publishes its list and certificate over plain HTTP, if it
+    /// does.
+    #[must_use]
+    pub fn publishes_on(&self) -> Option<&str> {
+        self.publish.as_deref()
+    }
+
+    /// The folder the authority is kept in, for the purpose's place `keep`.
+    #[must_use]
+    pub fn place(&self, keep: &Path) -> std::path::PathBuf {
+        keep.join(&self.authority)
+    }
+
     /// The authority kept in a purpose's place `keep`, made there the first
-    /// time, its name the first of `names`'.
+    /// time, its name the first of `names`', and the address it publishes
+    /// at recorded where `published_at` says one.
     ///
     /// # Errors
     ///
-    /// Where it cannot be read or made.
+    /// Where it cannot be read or made, or the address is not plain HTTP.
     pub fn authority(&self, keep: &Path, names: &[String]) -> Result<Authority> {
         let first = names.first().map_or("Xmip", String::as_str);
-        Authority::kept(
-            &keep.join(PLACE),
-            &format!("{first} cluster authority"),
-            provision::now(),
-            self.authority_lifetime,
-        )
+        let place = self.place(keep);
+        let name = format!("{first} cluster authority");
+        let made = Authority::kept(&place, &name, provision::now(), self.authority_lifetime)?;
+        match (&self.published_at, made.issuer().register()) {
+            (Some(address), Some(register))
+                if register.published()?.as_deref() != Some(address.trim_end_matches('/')) =>
+            {
+                register.publish(address)?;
+                Authority::kept(&place, &name, provision::now(), self.authority_lifetime)
+            }
+            _ => Ok(made),
+        }
     }
 
     /// Answer ACME on `listen` for the authority kept in `keep`, reached by
-    /// `names`, validating dns-01 through `dns` where there is one.
+    /// `names`, validating dns-01 through `dns` where there is one, else
+    /// against `dns_server` where it names one.
     ///
     /// # Errors
     ///
@@ -119,6 +181,11 @@ impl InternalCa {
         names: &[String],
         dns: Option<Arc<dyn DnsLookup>>,
     ) -> Result<Serving> {
+        let dns = dns.or_else(|| {
+            self.dns_server
+                .as_deref()
+                .map(|server| Arc::new(Resolver::new(server)) as Arc<dyn DnsLookup>)
+        });
         let policy = Policy {
             lifetime: self.lifetime,
             challenge_port: self.challenge_port,
@@ -130,6 +197,15 @@ impl InternalCa {
             names,
             policy,
         )
+    }
+
+    /// Publish the authority kept in `keep` on `listen`, plain HTTP.
+    ///
+    /// # Errors
+    ///
+    /// Where the authority cannot be read, or `listen` cannot be bound.
+    pub fn publish(&self, keep: &Path, listen: &str, names: &[String]) -> Result<Publishing> {
+        Publishing::start(Arc::new(self.authority(keep, names)?), listen)
     }
 
     /// How long a certificate it issues is valid.

@@ -17,7 +17,9 @@ The cluster's own certificate authority. A technology of
   private files (`xmip-core-secret`'s `private_file`) in a private folder;
   the certificate is written first and the key last, never over one, so a
   crash between leaves no authority kept and the next start makes a
-  matching pair.
+  matching pair. Beside them the capability's register keeps every
+  certificate it signs and every revocation, and the list it publishes
+  (`provision::register`).
 - **Signs a person's request** (`Authority::sign`, ADR-0034, amendment
   2026-10-15): an operator's certificate, client authentication alone, its
   subject the person, once the request's signature verifies and the
@@ -27,10 +29,29 @@ The cluster's own certificate authority. A technology of
 - **Serves ACME** (`Serving`), so every other node obtains its certificate by
   the one protocol it would use against any authority: it names the
   authority's directory and anchor as `acme` settings. The node holding the
-  authority issues its own directly (`InternalCa`).
+  authority issues its own directly (`InternalCa`). `xmip-service` serves it
+  where `[provision.node]` names `serve` (ADR-0034, amendment 2026-10-22):
+  the premises' own ACME service, for any standard client — the directory
+  names `revokeCert` and `renewalInfo` and needs no external account;
+  accounts are kept in the authority's folder (`acme/accounts/`) and
+  outlive a restart; orders and authorizations say when they expire; an
+  order's `replaces` (RFC 9773 section 5) is held to a certificate it
+  issued, once.
+- **Answers when to renew** (RFC 9773, `renewals.rs`): `renewalInfo/<id>`
+  suggests from two thirds to three quarters of a certificate's life, every
+  six hours; a revoked one's window has passed, so its client renews at
+  once.
+- **Revokes** (`revokeCert`): by the account the certificate was issued to
+  (`acme/ordered/<serial>`) or signed by the certificate's own key, into the
+  authority's register and its list at once.
+- **Publishes** (`Publishing`, `publish`): its revocation list at `/crl` and
+  its certificate at `/authority.cer` and `/authority.pem`, over plain HTTP,
+  the addresses every leaf names where `published_at` is set; the same three
+  answer over its ACME service's HTTPS too.
 - **Validates** http-01 on the port it is configured with
   (`challenge_port`, 80 unless said) and dns-01 through a `DnsLookup` it is
-  given; Xmip ships none yet, so without one it offers http-01 alone.
+  given, or by asking the DNS server on the premises `dns_server` names over
+  UDP (`Resolver`, RFC 1035); an answer cut short is refused, TCP not built.
 
 It rides on `xmip-core-provision-acme` as its carrier (ADR-0044 clause 1):
 the JWS and the objects it reads are the ones the client writes. Nothing here
@@ -45,6 +66,13 @@ life and not before; a challenge nobody answers is refused with the
 authority's reason; an incomplete configuration is refused naming what is
 missing; a person's request signed by the kept authority is presented on
 mutual TLS to the authority's own node, and the same request is refused as a
-node's. That is open problem 27's `identity-local`, without step-ca. The
+node's. That is open problem 27's `identity-local`, without step-ca.
+`tests/acme/premises.rs`: a client on the premises is told when to renew
+by renewal information, revokes into the list fetched over plain HTTP, keeps
+its account across a restart, and a stranger may not revoke.
+`tests/acme/third_party.rs`: lego, the Go ACME client, run from where
+`XMIP_ACME_LEGO` names it and SKIPPED otherwise, trusting the authority
+through `LEGO_CA_CERTIFICATES` alone, obtains by http-01, is told by
+renewal information it is not due, revokes, and renews at once. The
 workflow is manual-only and calls the versioned shared workflow at
 `IlleNilsson/.github@v1`.
