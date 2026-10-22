@@ -53,6 +53,12 @@ impl Authority {
         })
     }
 
+    /// What it signs with, and its register where it is kept in a folder.
+    #[must_use]
+    pub const fn issuer(&self) -> &Issuer {
+        &self.issuer
+    }
+
     /// Its certificate, PEM: the anchor every node of the cluster trusts.
     #[must_use]
     pub fn anchor(&self) -> &str {
