@@ -15,9 +15,10 @@ The cluster's own certificate authority. A technology of
   the capability's, `Issuer::kept_or_made`, since 2026-10-21 when a web
   host's authority on this machine came to be kept the same way: both are
   private files (`xmip-core-secret`'s `private_file`) in a private folder;
-  the certificate is written first and the key last, never over one, so a
-  crash between leaves no authority kept and the next start makes a
-  matching pair. Beside them the capability's register keeps every
+  the key is written first, never over one, then a certificate for
+  whichever key is kept, so makers racing for one folder and a crash
+  between the two alike leave a matching pair (ADR-0034, amendment
+  2026-10-27). Beside them the capability's register keeps every
   certificate it signs and every revocation, and the list it publishes
   (`provision::register`).
 - **Signs a person's request** (`Authority::sign`, ADR-0034, amendment
