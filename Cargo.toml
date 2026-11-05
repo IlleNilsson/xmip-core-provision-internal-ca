@@ -17,7 +17,7 @@ path = "src/lib.rs"
 # A Technology depends on its parent Capability, never the reverse
 # (repository-model.md): the key, the certificate, the CSR, the trait.
 provision = { package = "xmip-core-provision", git = "https://github.com/IlleNilsson/xmip-core-provision", branch = "main" }
-# The carrier (ADR-0044 clause 1), declared in architecture.toml: the
+# The carrier (ADR-0044 clause 1), declared in architecture.xmip: the
 # authority serves the RFC 8555 objects and JWS the client speaks, from the
 # one copy of each.
 acme = { package = "xmip-core-provision-acme", git = "https://github.com/IlleNilsson/xmip-core-provision-acme", branch = "main" }
