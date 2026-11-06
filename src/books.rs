@@ -18,7 +18,8 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use xcore::lock::Locked;
 
 use acme::Jwk;
 use acme::jws::{Signed, Signer};
@@ -115,7 +116,7 @@ impl Books {
     }
 
     pub(crate) fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state.locked()
     }
 
     pub(crate) fn url(&self, path: &str) -> String {
