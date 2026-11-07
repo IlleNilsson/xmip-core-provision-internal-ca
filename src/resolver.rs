@@ -153,7 +153,7 @@ fn strings(mut data: &[u8]) -> Option<String> {
         joined.extend_from_slice(rest.get(..length)?);
         data = &rest[length..];
     }
-    Some(String::from_utf8_lossy(&joined).into_owned())
+    Some(String::from_utf8_lossy_owned(joined))
 }
 
 #[cfg(test)]
