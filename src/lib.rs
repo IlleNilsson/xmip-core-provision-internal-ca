@@ -23,6 +23,8 @@
 
 mod authority;
 mod books;
+mod expiring;
+mod nonces;
 mod orders;
 mod problem;
 mod renewals;

@@ -35,9 +35,13 @@ The cluster's own certificate authority. A technology of
   the premises' own ACME service, for any standard client — the directory
   names `revokeCert` and `renewalInfo` and needs no external account;
   accounts are kept in the authority's folder (`acme/accounts/`) and
-  outlive a restart; orders and authorizations say when they expire; an
-  order's `replaces` (RFC 9773 section 5) is held to a certificate it
-  issued, once.
+  outlive a restart; orders and authorizations say when they expire, a day
+  after they are placed, and are dropped then (`expiring`); an order's
+  `replaces` (RFC 9773 section 5) is held to a certificate it issued, once.
+  A nonce lives ten minutes and at most 4,096 are kept, the oldest giving
+  way (`nonces`), so a client that asks for nonces and never uses them does
+  not grow the server; a nonce gone answers `badNonce`, which a client meets
+  by sending again with the fresh one that answer carries.
 - **Answers when to renew** (RFC 9773, `renewals.rs`): `renewalInfo/<id>`
   suggests from two thirds to three quarters of a certificate's life, every
   six hours; a revoked one's window has passed, so its client renews at
@@ -59,6 +63,11 @@ the JWS and the objects it reads are the ones the client writes. Nothing here
 reaches beyond the cluster (ADR-0045).
 
 ## Verification
+
+Unit tests: a hundred thousand nonces asked for keep the store at its
+bound; a nonce is taken once, and one past its lifetime not at all; an
+order or authorization past its expiry is dropped and its number never
+given again.
 
 `tests/acme`, offline and in process: a node obtains its certificate by ACME
 from the authority, by http-01 and by dns-01, and presents it on mutual TLS

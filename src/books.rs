@@ -13,8 +13,10 @@
 //! third party's — keeps its account across a restart of the node that
 //! serves; and each certificate an account was issued is noted beside it,
 //! `acme/ordered/<serial>`, so the account may revoke it after one.
-//! Orders and authorizations live as long as the server: a client orders
-//! again.
+//! Orders and authorizations live until they expire, or as long as the
+//! server where it stops first: a client orders again. Nonces live ten
+//! minutes, and only the newest are kept (`nonces`), so a client that asks
+//! for them and never uses one does not grow the server.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -27,6 +29,8 @@ use net::http::{Request, Response};
 use serde_json::{Value, json};
 
 use crate::Authority;
+use crate::expiring::{Expires, Expiring};
+use crate::nonces::Nonces;
 use crate::problem::Problem;
 use crate::validation::DnsLookup;
 
@@ -61,14 +65,34 @@ pub(crate) struct AuthorizationBook {
     pub(crate) expires: i64,
 }
 
+impl Expires for OrderBook {
+    fn expires(&self) -> i64 {
+        self.expires
+    }
+}
+
+impl Expires for AuthorizationBook {
+    fn expires(&self) -> i64 {
+        self.expires
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct State {
-    nonces: HashSet<String>,
+    pub(crate) nonces: Nonces,
     pub(crate) accounts: Vec<Jwk>,
-    pub(crate) orders: Vec<OrderBook>,
-    pub(crate) authorizations: Vec<AuthorizationBook>,
+    pub(crate) orders: Expiring<OrderBook>,
+    pub(crate) authorizations: Expiring<AuthorizationBook>,
     /// The certificates an order said it replaces (RFC 9773 section 5).
     pub(crate) replaced: HashSet<String>,
+}
+
+impl State {
+    /// Drop every order and authorization expired by `now`.
+    fn prune(&mut self, now: i64) {
+        self.orders.prune(now);
+        self.authorizations.prune(now);
+    }
 }
 
 /// The server's books, and the authority it issues from.
@@ -145,7 +169,7 @@ impl Books {
             (_, path) => Err(Problem::new(404, "malformed", format!("nothing at {path}"))),
         };
         let nonce = codec::base64::encode_url_unpadded(&codec::random::array::<16>());
-        self.state().nonces.insert(nonce.clone());
+        self.state().nonces.give(nonce.clone(), provision::now());
         answer
             .unwrap_or_else(|problem| problem.response())
             .header("Replay-Nonce", &nonce)
@@ -169,7 +193,7 @@ impl Books {
     /// A signed request, held to the rules, then routed.
     fn signed(&self, path: &str, body: &[u8]) -> Result<Response, Problem> {
         let signed = Signed::read(body)?;
-        if !self.state().nonces.remove(&signed.nonce) {
+        if !self.state().nonces.take(&signed.nonce, provision::now()) {
             return Err(Problem::new(
                 400,
                 "badNonce",
@@ -254,6 +278,7 @@ impl Books {
 
     /// A request from an account, to the object `path` names.
     fn route(&self, path: &str, from: &Asked) -> Result<Response, Problem> {
+        self.state().prune(provision::now());
         let mut segments = path.trim_start_matches('/').split('/');
         let (kind, index, rest) = (segments.next(), segments.next(), segments.next());
         let index = index.and_then(|index| index.parse::<usize>().ok());
@@ -281,7 +306,6 @@ impl Books {
         state
             .orders
             .iter()
-            .enumerate()
             .filter(|(_, order)| order.account == account)
             .map(|(index, _)| self.url(&format!("/order/{index}")))
             .collect()
