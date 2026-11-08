@@ -7,6 +7,7 @@ use provision::{Purpose, csr};
 use serde_json::{Value, json};
 
 use crate::books::{Asked, AuthorizationBook, Books, OrderBook, State, json_response, rfc3339};
+use crate::expiring::Expiring;
 use crate::problem::Problem;
 use crate::validation;
 
@@ -46,17 +47,16 @@ impl Books {
         let mut state = self.state();
         let mut authorizations = Vec::new();
         for name in &names {
-            state.authorizations.push(AuthorizationBook {
+            authorizations.push(state.authorizations.insert(AuthorizationBook {
                 account: from.account,
                 name: name.clone(),
                 token: codec::base64::encode_url_unpadded(&codec::random::array::<32>()),
                 status: "pending",
                 error: None,
                 expires,
-            });
-            authorizations.push(state.authorizations.len() - 1);
+            }));
         }
-        state.orders.push(OrderBook {
+        let index = state.orders.insert(OrderBook {
             account: from.account,
             names,
             authorizations,
@@ -64,8 +64,7 @@ impl Books {
             chain: None,
             expires,
         });
-        let index = state.orders.len() - 1;
-        let body = self.order_json(&state.orders[index], index);
+        let body = self.order_json(state.orders.get(index).expect("kept just now"), index);
         Ok(json_response(201, &body).header("Location", &self.url(&format!("/order/{index}"))))
     }
 
@@ -114,7 +113,10 @@ impl Books {
             }
         };
         let mut state = self.state();
-        let found = &mut state.authorizations[index];
+        let found = state
+            .authorizations
+            .get_mut(index)
+            .ok_or_else(|| Problem::new(404, "malformed", "the authorization expired"))?;
         match checked {
             Ok(()) => found.status = "valid",
             Err(failure) => {
@@ -129,16 +131,16 @@ impl Books {
             ..
         } = &mut *state;
         let waiting = orders
-            .iter_mut()
+            .values_mut()
             .filter(|order| order.status == "pending" && order.authorizations.contains(&index));
         for order in waiting {
             if status != "valid" {
                 order.status = "invalid";
-            } else if order
-                .authorizations
-                .iter()
-                .all(|one| authorizations[*one].status == "valid")
-            {
+            } else if order.authorizations.iter().all(|one| {
+                authorizations
+                    .get(*one)
+                    .is_some_and(|found| found.status == "valid")
+            }) {
                 order.status = "ready";
             }
         }
@@ -207,7 +209,7 @@ impl Books {
         let serial = provision::Parsed::first(&chain)?.serial_hex();
         order.chain = Some(chain);
         order.status = "valid";
-        let body = self.order_json(&state.orders[index], index);
+        let body = self.order_json(order, index);
         drop(state);
         self.note_ordered(&serial, from.account)?;
         Ok(json_response(200, &body))
@@ -278,9 +280,10 @@ impl Books {
     }
 }
 
-/// The authorization `index`, where `from`'s account placed it.
+/// The authorization `index`, where `from`'s account placed it and it has
+/// not expired.
 fn owned<'a>(
-    authorizations: &'a [AuthorizationBook],
+    authorizations: &'a Expiring<AuthorizationBook>,
     from: &Asked,
     index: usize,
 ) -> Result<&'a AuthorizationBook, Problem> {
