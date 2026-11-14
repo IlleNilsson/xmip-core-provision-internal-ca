@@ -57,3 +57,11 @@ impl From<provision::ProvisionError> for Problem {
         Self::malformed(error.message)
     }
 }
+
+/// A certificate that does not read (`tls::certificate`) is malformed, as
+/// provisioning's own reading said until 2026-11-13.
+impl From<tls::TlsError> for Problem {
+    fn from(error: tls::TlsError) -> Self {
+        Self::malformed(error.message)
+    }
+}

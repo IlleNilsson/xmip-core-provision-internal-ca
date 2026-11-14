@@ -10,8 +10,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use acme::{Challenge, Channel, Client};
+use provision::KeyPair;
 use provision::crl::{self, Reason};
-use provision::{KeyPair, Parsed};
+use tls::certificate::Certificate;
 use xcore::settings::Given;
 use xmip_core_provision_internal_ca::{self as internal_ca, InternalCa, Publishing, Serving};
 
@@ -84,7 +85,7 @@ fn a_client_on_the_premises_renews_by_renewal_information_and_revokes_into_the_l
     let (chain, _) = client
         .certificate(&[HOST.to_string()], &challenge, wait)
         .expect("issued");
-    let leaf = Parsed::first(&chain).expect("the leaf");
+    let leaf = Certificate::first(&chain).expect("the leaf");
 
     let suggested = client
         .renewal_window(&chain)
@@ -94,9 +95,8 @@ fn a_client_on_the_premises_renews_by_renewal_information_and_revokes_into_the_l
         suggested,
         provision::renewal::window(leaf.not_before, leaf.not_after)
     );
-    let text =
-        String::from_utf8_lossy(&provision::pem::decode("CERTIFICATE", &chain).expect("pem")[0])
-            .into_owned();
+    let text = String::from_utf8_lossy(&codec::pem::decode("CERTIFICATE", &chain).expect("pem")[0])
+        .into_owned();
     let published = format!("http://{}", loopback(publish));
     assert!(
         text.contains(&format!("{published}/crl")),
@@ -104,7 +104,7 @@ fn a_client_on_the_premises_renews_by_renewal_information_and_revokes_into_the_l
     );
 
     let anchor = fetched(publishing.address(), "/authority.cer");
-    let authority = Parsed::read(&anchor).expect("the authority's certificate");
+    let authority = Certificate::read(&anchor).expect("the authority's certificate");
     let listed = crl::read(&fetched(publishing.address(), "/crl")).expect("a list");
     assert!(listed.signed_by(&authority).expect("checked"));
     assert!(listed.names(&leaf.serial).is_none());
