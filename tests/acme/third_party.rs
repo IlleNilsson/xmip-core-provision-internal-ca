@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use provision::Parsed;
 use provision::crl::Reason;
+use tls::certificate::Certificate;
 use xcore::settings::Given;
 use xmip_core_provision_internal_ca::{self as internal_ca, InternalCa};
 
@@ -53,11 +53,11 @@ fn run(lego: &Path, data: &Path, anchor: &Path, directory: &str, arguments: &[&s
 }
 
 /// The certificate lego keeps for `HOST`.
-fn held(data: &Path) -> Parsed {
+fn held(data: &Path) -> Certificate {
     let path = data.join("certificates").join(format!("{HOST}.crt"));
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|failure| panic!("{}: {failure}", path.display()));
-    Parsed::first(&text).expect("a certificate")
+    Certificate::first(&text).expect("a certificate")
 }
 
 #[test]

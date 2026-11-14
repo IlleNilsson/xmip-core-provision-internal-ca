@@ -258,7 +258,7 @@ fn a_persons_request_signed_by_the_authority_is_presented_on_mutual_tls_to_its_n
     let node = ca.obtain(&order).expect("the node's own");
 
     let asked = provision::operator::request("alice@example.org").expect("a request");
-    let der = provision::pem::decode(provision::operator::REQUEST_LABEL, &asked.request)
+    let der = codec::pem::decode(provision::operator::REQUEST_LABEL, &asked.request)
         .expect("pem")
         .remove(0);
     let authority = ca.authority(&place.0, &names).expect("kept");

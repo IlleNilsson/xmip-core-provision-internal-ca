@@ -206,7 +206,7 @@ impl Books {
             now,
             now + self.policy.lifetime,
         )?;
-        let serial = provision::Parsed::first(&chain)?.serial_hex();
+        let serial = tls::certificate::Certificate::first(&chain)?.serial_hex();
         order.chain = Some(chain);
         order.status = "valid";
         let body = self.order_json(order, index);

@@ -115,7 +115,7 @@ fn answer(tcp: TcpStream, config: &Arc<tls::ServerConfig>, books: &Books) {
 /// verifier on the premises; `None` for any other path.
 pub(crate) fn published(authority: &Authority, path: &str) -> Option<Response> {
     let anchor = || {
-        provision::pem::decode("CERTIFICATE", authority.anchor())
+        codec::pem::decode("CERTIFICATE", authority.anchor())
             .ok()
             .and_then(|mut blocks| blocks.pop())
     };

@@ -8,10 +8,10 @@
 use acme::Jwk;
 use acme::jws::Signed;
 use net::http::Response;
-use provision::Parsed;
 use provision::crl::Reason;
 use provision::renewal::{self, window};
 use serde_json::{Value, json};
+use tls::certificate::Certificate;
 
 use crate::books::{Asked, Books, json_response, rfc3339};
 use crate::problem::Problem;
@@ -28,7 +28,7 @@ impl Books {
     pub(crate) fn renewal_info(&self, identifier: &str) -> Result<Response, Problem> {
         let (authority, serial) =
             renewal::halves(identifier).map_err(|refused| Problem::malformed(refused.message))?;
-        let own = Parsed::first(self.authority.anchor())?;
+        let own = Certificate::first(self.authority.anchor())?;
         let ours = provision::key_identifier(&own.public_key_info)? == authority;
         let register = self.authority.issuer().register();
         let found = register
@@ -95,7 +95,7 @@ impl Books {
             return Err(Problem::unauthorized("the signature is not the key's"));
         }
         let (read, reason) = asked(&signed.json()?)?;
-        let point = provision::point_of(&read.public_key_info)?;
+        let point = tls::certificate::point_of(&read.public_key_info)?;
         if point != key.point() {
             return Err(Problem::unauthorized(
                 "the request is signed by another key than the certificate's",
@@ -105,7 +105,7 @@ impl Books {
     }
 
     /// The certificate revoked in the register and listed at once.
-    fn revoked(&self, read: &Parsed, reason: Reason) -> Result<Response, Problem> {
+    fn revoked(&self, read: &Certificate, reason: Reason) -> Result<Response, Problem> {
         match self
             .authority
             .issuer()
@@ -122,7 +122,7 @@ impl Books {
 
 /// The certificate a `revokeCert` names and the reason it gives, held to
 /// the reasons this authority revokes for.
-fn asked(payload: &Value) -> Result<(Parsed, Reason), Problem> {
+fn asked(payload: &Value) -> Result<(Certificate, Reason), Problem> {
     let der = payload
         .get("certificate")
         .and_then(Value::as_str)
@@ -135,5 +135,5 @@ fn asked(payload: &Value) -> Result<(Parsed, Reason), Problem> {
         Some(code) => Reason::of_code(code)
             .map_err(|refused| Problem::new(400, "badRevocationReason", refused.message))?,
     };
-    Ok((Parsed::read(&der)?, reason))
+    Ok((Certificate::read(&der)?, reason))
 }
