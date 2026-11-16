@@ -23,8 +23,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use xcore::lock::Locked;
 
-use acme::Jwk;
-use acme::jws::{Signed, Signer};
+use acme::signed::{Signed, Signer};
+use jose::jwk::Key;
 use net::http::{Request, Response};
 use serde_json::{Value, json};
 
@@ -80,7 +80,7 @@ impl Expires for AuthorizationBook {
 #[derive(Default)]
 pub(crate) struct State {
     pub(crate) nonces: Nonces,
-    pub(crate) accounts: Vec<Jwk>,
+    pub(crate) accounts: Vec<Key>,
     pub(crate) orders: Expiring<OrderBook>,
     pub(crate) authorizations: Expiring<AuthorizationBook>,
     /// The certificates an order said it replaces (RFC 9773 section 5).
@@ -312,16 +312,21 @@ impl Books {
     }
 
     /// Keep the account `index`, its key, so it outlives the server.
-    fn keep_account(&self, index: usize, key: &Jwk) -> Result<(), Problem> {
+    fn keep_account(&self, index: usize, key: &Key) -> Result<(), Problem> {
         let Some(folder) = &self.kept else {
             return Ok(());
         };
+        let jwk = key.json().ok_or_else(|| {
+            Problem::new(
+                500,
+                "serverInternal",
+                "an account key that is not a P-256 key",
+            )
+        })?;
         let folder = folder.join(ACCOUNTS);
         let path = folder.join(format!("{index}.json"));
         secret::private_file::directory(&folder)
-            .and_then(|()| {
-                secret::private_file::create_readable(&path, key.json().to_string().as_bytes())
-            })
+            .and_then(|()| secret::private_file::create_readable(&path, jwk.to_string().as_bytes()))
             .map_err(|failure| Problem::new(500, "serverInternal", failure.to_string()))
     }
 
@@ -352,14 +357,16 @@ impl Books {
 
 /// Every account kept in `folder`, in the order they were opened; one that
 /// does not read leaves its place empty of any key.
-fn read_accounts(folder: &Path) -> Vec<Jwk> {
+fn read_accounts(folder: &Path) -> Vec<Key> {
     let mut accounts = Vec::new();
     for index in 0.. {
         let Ok(text) = std::fs::read_to_string(folder.join(format!("{index}.json"))) else {
             break;
         };
-        match serde_json::from_str(&text).map(|value: Value| Jwk::from_json(&value)) {
-            Ok(Ok(key)) => accounts.push(key),
+        match serde_json::from_str(&text).map(|value: Value| Key::read(&value)) {
+            Ok(Ok(Some(key))) if key.algorithm() == jose::jws::Algorithm::Es256 => {
+                accounts.push(key);
+            }
             _ => break,
         }
     }

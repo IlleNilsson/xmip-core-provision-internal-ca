@@ -100,7 +100,7 @@ impl Books {
             let key = state.accounts[from.account].clone();
             (found.name.clone(), found.token.clone(), key)
         };
-        let authorization = key.key_authorization(&token);
+        let authorization = acme::key_authorization(&key, &token)?;
         let checked = match (kind, &self.policy.dns) {
             ("http-01", _) => {
                 validation::http01(&name, self.policy.challenge_port, &token, &authorization)

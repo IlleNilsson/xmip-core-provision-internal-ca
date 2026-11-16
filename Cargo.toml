@@ -18,9 +18,12 @@ path = "src/lib.rs"
 # (repository-model.md): the key, the certificate, the CSR, the trait.
 provision = { package = "xmip-core-provision", git = "https://github.com/IlleNilsson/xmip-core-provision", branch = "main" }
 # The carrier (ADR-0044 clause 1), declared in architecture.toml: the
-# authority serves the RFC 8555 objects and JWS the client speaks, from the
-# one copy of each.
+# authority serves the RFC 8555 objects and signed requests the client
+# speaks, from the one copy of each.
 acme = { package = "xmip-core-provision-acme", git = "https://github.com/IlleNilsson/xmip-core-provision-acme", branch = "main" }
+# An account's key, kept as its JWK and checked as ES256 by the estate's one
+# JOSE, as the client signs with it.
+jose = { package = "xmip-core-library-jose", git = "https://github.com/IlleNilsson/xmip-core-library-jose", branch = "main", features = ["key"] }
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 # Xmip's own HTTP and TLS: the requests the server answers, the http-01
 # answer it asks for.

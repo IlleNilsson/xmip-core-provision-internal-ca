@@ -5,8 +5,8 @@
 //! (ADR-0034, amendment 2026-10-22), so a revocation by ACME and one by an
 //! operator are the same revocation, listed at once.
 
-use acme::Jwk;
-use acme::jws::Signed;
+use acme::signed::Signed;
+use jose::jwk::Key;
 use net::http::Response;
 use provision::crl::Reason;
 use provision::renewal::{self, window};
@@ -90,13 +90,13 @@ impl Books {
     }
 
     /// `revokeCert` signed by the certificate's own key.
-    pub(crate) fn revoke_by_key(&self, signed: &Signed, key: &Jwk) -> Result<Response, Problem> {
+    pub(crate) fn revoke_by_key(&self, signed: &Signed, key: &Key) -> Result<Response, Problem> {
         if !signed.verified_by(key) {
             return Err(Problem::unauthorized("the signature is not the key's"));
         }
         let (read, reason) = asked(&signed.json()?)?;
         let point = tls::certificate::point_of(&read.public_key_info)?;
-        if point != key.point() {
+        if key.point() != Some(point.as_slice()) {
             return Err(Problem::unauthorized(
                 "the request is signed by another key than the certificate's",
             ));

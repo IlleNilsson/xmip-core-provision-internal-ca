@@ -59,8 +59,10 @@ The cluster's own certificate authority. A technology of
   UDP (`Resolver`, RFC 1035); an answer cut short is refused, TCP not built.
 
 It rides on `xmip-core-provision-acme` as its carrier (ADR-0044 clause 1):
-the JWS and the objects it reads are the ones the client writes. Nothing here
-reaches beyond the cluster (ADR-0045).
+the signed requests and the objects it reads are the ones the client writes,
+and an account's key, kept as its JWK, is checked by the estate's one JOSE
+(`xmip-core-library-jose`). Nothing here reaches beyond the cluster
+(ADR-0045).
 
 ## Verification
 
