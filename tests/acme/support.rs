@@ -5,29 +5,20 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use acme::DnsWriter;
+use file::temporary::Folder;
 use provision::{Configured, ProvisionError};
 use xcore::settings::{Given, Settings};
 use xmip_core_provision_internal_ca::DnsLookup;
 
-/// A fresh directory under the system's temporary one, removed on drop.
-pub struct Place(pub PathBuf);
+/// A fresh folder of its own, removed on drop.
+pub struct Place(pub Folder);
 
 impl Place {
     pub fn new() -> Self {
-        let name = codec::hex::encode(&codec::random::array::<8>());
-        let path = std::env::temp_dir().join(format!("xmip-provision-{name}"));
-        std::fs::create_dir_all(&path).expect("a place");
-        Self(path)
-    }
-}
-
-impl Drop for Place {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        Self(Folder::new("provision-internal-ca"))
     }
 }
 
