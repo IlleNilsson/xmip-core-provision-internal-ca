@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use acme::Listening;
-use net::http::{Response, read_request, write_response};
+use net::http::{Response, read_request_or_refuse, write_response};
 use provision::{KeyPair, ProvisionError, Purpose, Result};
 
 use crate::Authority;
@@ -94,14 +94,15 @@ impl Serving {
     }
 }
 
-/// One connection: the handshake, one request, its answer.
+/// One connection: the handshake, one request, its answer, `400` where
+/// HTTP refuses the request.
 fn answer(tcp: TcpStream, config: &Arc<tls::ServerConfig>, books: &Books) {
     let _ = tcp.set_read_timeout(Some(PATIENCE));
     let _ = tcp.set_write_timeout(Some(PATIENCE));
     let Ok(mut stream) = tls::server(tcp, Arc::clone(config)) else {
         return;
     };
-    let Ok(Some(request)) = read_request(&mut BufReader::new(&mut stream)) else {
+    let Ok(Some(request)) = read_request_or_refuse(&mut BufReader::new(&mut stream)) else {
         return;
     };
     let _ = write_response(&mut stream, &books.answer(&request));
@@ -152,17 +153,15 @@ impl Publishing {
             Listening::start(listen, "the cluster authority's publication", move |tcp| {
                 let _ = tcp.set_read_timeout(Some(PATIENCE));
                 let _ = tcp.set_write_timeout(Some(PATIENCE));
-                let Ok(mut writer) = tcp.try_clone() else {
-                    return;
-                };
-                let Ok(Some(request)) = read_request(&mut BufReader::new(tcp)) else {
+                let mut connection = BufReader::new(tcp);
+                let Ok(Some(request)) = read_request_or_refuse(&mut connection) else {
                     return;
                 };
                 let answer = (request.method == "GET")
                     .then(|| published(&authority, &request.path))
                     .flatten()
                     .unwrap_or_else(|| Response::new(404));
-                let _ = write_response(&mut writer, &answer);
+                let _ = write_response(connection.get_mut(), &answer);
             })?;
         Ok(Self { listening })
     }
