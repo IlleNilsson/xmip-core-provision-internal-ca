@@ -13,32 +13,32 @@ path = "src/lib.rs"
 [dependencies]
 # A Technology depends on its parent Capability, never the reverse
 # (repository-model.md): the key, the certificate, the CSR, the trait.
-provision = { package = "xmip-core-provision", git = "https://github.com/IlleNilsson/xmip-core-provision", branch = "main" }
+provision = { workspace = true }
 # The carrier (ADR-0044 clause 1), declared in architecture.toml: the
 # authority serves the RFC 8555 objects and signed requests the client
 # speaks, from the one copy of each.
-acme = { package = "xmip-core-provision-acme", git = "https://github.com/IlleNilsson/xmip-core-provision-acme", branch = "main" }
+acme = { workspace = true }
 # An account's key, kept as its JWK and checked as ES256 by the estate's one
 # JOSE, as the client signs with it.
-jose = { package = "xmip-core-library-jose", git = "https://github.com/IlleNilsson/xmip-core-library-jose", branch = "main", features = ["key"] }
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+jose = { workspace = true, features = ["key"] }
+xcore = { workspace = true }
 # Xmip's own HTTP and TLS: the requests the server answers, the http-01
 # answer it asks for.
-net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
-tls = { package = "xmip-core-library-tls", git = "https://github.com/IlleNilsson/xmip-core-library-tls", branch = "main" }
-codec = { package = "xmip-core-library-codec", git = "https://github.com/IlleNilsson/xmip-core-library-codec", branch = "main" }
+net = { workspace = true }
+tls = { workspace = true }
+codec = { workspace = true }
 serde_json = "1"
 # Accounts and who ordered what, kept in the authority's folder whole and
 # synced (secret::private_file), as the register beside them.
-secret = { package = "xmip-core-secret", git = "https://github.com/IlleNilsson/xmip-core-secret", branch = "main" }
+secret = { workspace = true }
 zeroize = "1"
 
 [dev-dependencies]
 # A loopback address no one holds, for what a test wants nothing listening
 # at or binds later (`net::fixture::unheld`).
-net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main", features = ["test-support"] }
+net = { workspace = true, features = ["test-support"] }
 # A test's own temporary folder (`file::temporary`); for the tests only.
-file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
+file = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
